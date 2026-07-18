@@ -1,5 +1,33 @@
 # Changelog
 
+## v4.1.1
+
+Fixes the real cause of the mass NULLREF problem. v4.0.2 misdiagnosed it.
+
+### Fixed
+
+- **Entry reference resolution.** `EntryTarget` used
+  `ElementBySignature(entry, 'LVLO')`, which looks for a child element named
+  LVLO. In FO4 the entry element *is* the LVLO struct — `Level`, `Count` and
+  `Reference` are fields directly inside it, with no nested child. So the lookup
+  returned nothing and `LinksTo` failed on every entry, producing hundreds of
+  false `NULLREF` findings, no nesting detection, and every list flagged
+  `ORPHAN`.
+
+  `Reference` is now read directly, with fallbacks to the older paths for other
+  xEdit versions and record layouts. `Level` and `Count` route through matching
+  helpers.
+
+  The giveaway: Level and Count read correctly all along, which meant the entry
+  handle was valid and only the reference lookup was wrong. v4.0.2 blamed stale
+  handles and changed the pass structure — a real improvement, but not the bug.
+
+### Added
+
+- Sanity check in the summary. If no entry resolves and no list references
+  another, the report says the results are untrustworthy and explains the likely
+  causes, instead of presenting hundreds of bogus findings as fact.
+
 ## v4.1.0
 
 ### Added

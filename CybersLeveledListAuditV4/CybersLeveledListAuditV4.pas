@@ -437,12 +437,41 @@ begin
 end;
 
 //-------------------------------------------------------------------
-// Shared entry accessor: resolves the LVLO target for one entry element.
+// Resolve the target record of one leveled list entry.
+//
+// In FO4 the entry element IS the LVLO struct - Level, Count and Reference sit
+// directly inside it, there is no nested LVLO child. Earlier versions used
+// ElementBySignature(entry,'LVLO') which looks for a child of that name, found
+// nothing, and reported every entry as NULLREF. Several spellings are tried
+// here because the field label differs between xEdit versions and record
+// layouts.
 function EntryTarget(entry: IInterface): IInterface;
 begin
+  Result := LinksTo(ElementByPath(entry, 'Reference'));
+  if Assigned(Result) then Exit;
+
+  Result := LinksTo(ElementByPath(entry, 'LVLO\Reference'));
+  if Assigned(Result) then Exit;
+
   Result := LinksTo(ElementBySignature(entry, 'LVLO'));
-  if not Assigned(Result) then
-    Result := LinksTo(ElementByPath(entry, 'LVLO\Reference'));
+  if Assigned(Result) then Exit;
+
+  Result := LinksTo(ElementByName(entry, 'Reference'));
+end;
+
+// Level and Count live in the same struct, and need the same fallback.
+function EntryLevel(entry: IInterface): Integer;
+begin
+  Result := GetElementNativeValues(entry, 'Level');
+  if Result = 0 then
+    Result := GetElementNativeValues(entry, 'LVLO\Level');
+end;
+
+function EntryCount(entry: IInterface): Integer;
+begin
+  Result := GetElementNativeValues(entry, 'Count');
+  if Result = 0 then
+    Result := GetElementNativeValues(entry, 'LVLO\Count');
 end;
 
 //-------------------------------------------------------------------
@@ -515,8 +544,8 @@ begin
   for i := 0 to ElementCount(entries) - 1 do begin
     entry := ElementByIndex(entries, i);
     ref   := EntryTarget(entry);
-    lvl   := GetElementNativeValues(entry, 'LVLO\Level');
-    cnt   := GetElementNativeValues(entry, 'LVLO\Count');
+    lvl   := EntryLevel(entry);
+    cnt   := EntryCount(entry);
 
     if not Assigned(ref) then begin
       Log('CRITICAL', 'NULLREF', cur, nil, i, lvl, cnt, depth, ipath,
@@ -641,8 +670,8 @@ begin
   Result := '';
   ref := EntryTarget(entry);
   if not Assigned(ref) then Exit;
-  lvl := GetElementNativeValues(entry, 'LVLO\Level');
-  cnt := GetElementNativeValues(entry, 'LVLO\Count');
+  lvl := EntryLevel(entry);
+  cnt := EntryCount(entry);
   Result := KeyOf(ref) + '|L' + IntToStr(lvl) + '|C' + IntToStr(cnt);
 end;
 
@@ -930,6 +959,24 @@ begin
   slReport.Add('Lists indexed    : ' + IntToStr(slListIndex.Count));
   slReport.Add('Items auto-tiered: ' + IntToStr(slTierCache.Count));
   slReport.Add('Max nesting depth: ' + IntToStr(iMaxDepth));
+
+  // Sanity check. If essentially nothing resolved, the problem is the script
+  // or the load order, not the data - say so rather than letting the reader
+  // act on hundreds of bogus NULLREF findings.
+  idx := slCounts.IndexOf('NULLREF');
+  if idx >= 0 then begin
+    if (slRefCount.Count = 0) and (Integer(slCounts.Objects[idx]) > 10) then begin
+      slReport.Add('');
+      slReport.Add('*** WARNING - RESULTS ARE PROBABLY NOT TRUSTWORTHY ***');
+      slReport.Add('Every entry failed to resolve and no list referenced any other.');
+      slReport.Add('That pattern means the script could not read entry targets at');
+      slReport.Add('all, rather than that your load order is broken. Likely causes:');
+      slReport.Add('  - a plugin was loaded without its masters');
+      slReport.Add('  - an xEdit version whose record layout differs from expected');
+      slReport.Add('Please report this output so the entry path handling can be fixed.');
+      AddMessage('WARNING: nothing resolved - see the warning block in the report.');
+    end;
+  end;
 
   //-----------------------------------------------------------------
   // Output. Three things get written:
