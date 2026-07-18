@@ -31,7 +31,6 @@ var
   slCsv         : TStringList;
   slListIndex   : TStringList;
   slRefCount    : TStringList;
-  slInjections  : TStringList;
   slTiers       : TStringList;
   slTierCache   : TStringList;
   slVisiting    : TStringList;
@@ -53,7 +52,6 @@ begin
   slCsv        := TStringList.Create;
   slListIndex  := TStringList.Create;
   slRefCount   := TStringList.Create;
-  slInjections := TStringList.Create;
   slTiers      := TStringList.Create;
   slTierCache  := TStringList.Create;
   slVisiting   := TStringList.Create;
@@ -71,7 +69,6 @@ begin
 
   slListIndex.Sorted  := True;
   slRefCount.Sorted   := True;
-  slInjections.Sorted := True;
   slTierCache.Sorted  := True;
   slCounts.Sorted     := True;
 
@@ -502,6 +499,7 @@ var
   cn: Real;
   key, ipath, injKey, sEid: string;
   effChance: Real;
+  slSeenHere: TStringList;   // targets seen in THIS list, this visit only
 begin
   if not Assigned(e) then Exit;
 
@@ -559,6 +557,11 @@ begin
     Exit;
   end;
 
+  slSeenHere := TStringList.Create;
+  slSeenHere.Sorted := True;
+  slSeenHere.Duplicates := dupIgnore;
+  try
+
   for i := 0 to ElementCount(entries) - 1 do begin
     entry := ElementByIndex(entries, i);
     ref   := EntryTarget(entry);
@@ -580,14 +583,17 @@ begin
     else
       slRefCount.Objects[idx] := TObject(Integer(slRefCount.Objects[idx]) + 1);
 
-    injKey := key + '|' + KeyOf(ref);
-    if slInjections.IndexOf(injKey) >= 0 then
+    // DUPE detection must be scoped to THIS list only. slInjections used to be
+    // a global, so a nested list reached from several parents matched keys left
+    // over from an earlier visit and reported every entry as a duplicate.
+    injKey := KeyOf(ref);
+    if slSeenHere.IndexOf(injKey) >= 0 then
       Log('WARN', 'DUPE', cur, ref, i, lvl, cnt, depth, ipath,
           'This target appears more than once in the same list, doubling its roll weight.',
           'Likely two mods injected the same item. Compare the Chain field across ' +
           'both entries and remove the redundant one in your patch.')
     else
-      slInjections.Add(injKey);
+      slSeenHere.Add(injKey);
 
     if lvl <= 0 then
       Log('WARN', 'LEVEL', cur, ref, i, lvl, cnt, depth, ipath,
@@ -628,6 +634,10 @@ begin
 
     if IsLeveled(ref) then
       WalkList(ref, depth + 1, effChance, ipath);
+  end;
+
+  finally
+    slSeenHere.Free;
   end;
 
   idx := slVisiting.IndexOf(key);
@@ -1111,7 +1121,6 @@ begin
   slCsv.Free;
   slListIndex.Free;
   slRefCount.Free;
-  slInjections.Free;
   slTiers.Free;
   slTierCache.Free;
   slVisiting.Free;

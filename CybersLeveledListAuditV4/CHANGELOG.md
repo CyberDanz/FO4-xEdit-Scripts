@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.1.3
+
+### Fixed
+
+- **False DUPE findings on nested lists.** The duplicate check used a global
+  `slInjections` set that persisted for the whole run, but a nested list is
+  visited once per parent that points to it. On the second visit every key was
+  already present, so every entry was reported as a duplicate. A load order
+  with 44 lists produced 92 DUPE findings, nearly all wrong.
+
+  The check now uses a list-local set, created per visit and freed in a
+  `finally`, so it only ever compares entries within the same list. The unused
+  global has been removed.
+
+### Notes
+
+- The first run with working reference resolution confirms the v4.1.2 fix:
+  `NULLREF` went from 257 to 0, nesting depth is detected, and item tiers are
+  derived.
+- Remaining `ORPHAN` findings on this test load order are the documented false
+  positive: top-level vendor and NPC lists are referenced from NPC inventories
+  and containers, which this script does not scan.
+
 ## v4.1.2
 
 Fixes entry reference resolution for real, confirmed against actual xEdit
