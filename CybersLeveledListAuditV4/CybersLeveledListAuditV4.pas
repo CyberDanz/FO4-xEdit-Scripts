@@ -246,7 +246,7 @@ begin
   slReport.Add('  Chain     : ' + OverrideChain(lst));
   if entryIdx >= 0 then
     slReport.Add('  Entry     : index ' + IntToStr(entryIdx) +
-                 '   (xEdit path: Leveled List Entries\[' + IntToStr(entryIdx) + ']\LVLO)');
+                 '   (xEdit path: Leveled List Entries\[' + IntToStr(entryIdx) + ']\LVLO - Base Data)');
   if Assigned(ref) then begin
     slReport.Add('  Target    : ' + SafeName(ref) + '  <' + sSig + '>');
     slReport.Add('  TgtOrigin : ' + OriginPlugin(ref));
@@ -439,39 +439,57 @@ end;
 //-------------------------------------------------------------------
 // Resolve the target record of one leveled list entry.
 //
-// In FO4 the entry element IS the LVLO struct - Level, Count and Reference sit
-// directly inside it, there is no nested LVLO child. Earlier versions used
-// ElementBySignature(entry,'LVLO') which looks for a child of that name, found
-// nothing, and reported every entry as NULLREF. Several spellings are tried
-// here because the field label differs between xEdit versions and record
-// layouts.
+// Confirmed layout (xEdit 4.1.5q, FO4):
+//   Leveled List Entry            (sig LVLO)
+//     LVLO - Base Data            (sig LVLO)
+//       Level
+//       Unused
+//       Item                      <- the target reference
+//       Count
+//       Chance None
+//       Unused
+//
+// The field is named "Item", not "Reference", and it lives one level down
+// inside "LVLO - Base Data". Earlier versions looked for 'Reference' and for a
+// child with signature LVLO, both of which return nil here - which is why
+// every entry was reported as NULLREF.
+//
+// Note that 'LVLO\Level' happened to work because xEdit prefix-matches
+// 'LVLO' against 'LVLO - Base Data'. That masked the problem: Level and Count
+// read correctly while the reference never resolved.
 function EntryTarget(entry: IInterface): IInterface;
 begin
-  Result := LinksTo(ElementByPath(entry, 'Reference'));
+  Result := LinksTo(ElementByPath(entry, 'LVLO - Base Data\Item'));
+  if Assigned(Result) then Exit;
+
+  // Fallbacks for other games or xEdit builds with a different layout.
+  Result := LinksTo(ElementByPath(entry, 'LVLO\Item'));
+  if Assigned(Result) then Exit;
+
+  Result := LinksTo(ElementByPath(entry, 'Item'));
   if Assigned(Result) then Exit;
 
   Result := LinksTo(ElementByPath(entry, 'LVLO\Reference'));
-  if Assigned(Result) then Exit;
-
-  Result := LinksTo(ElementBySignature(entry, 'LVLO'));
-  if Assigned(Result) then Exit;
-
-  Result := LinksTo(ElementByName(entry, 'Reference'));
 end;
 
-// Level and Count live in the same struct, and need the same fallback.
 function EntryLevel(entry: IInterface): Integer;
 begin
-  Result := GetElementNativeValues(entry, 'Level');
+  Result := GetElementNativeValues(entry, 'LVLO - Base Data\Level');
   if Result = 0 then
     Result := GetElementNativeValues(entry, 'LVLO\Level');
 end;
 
 function EntryCount(entry: IInterface): Integer;
 begin
-  Result := GetElementNativeValues(entry, 'Count');
+  Result := GetElementNativeValues(entry, 'LVLO - Base Data\Count');
   if Result = 0 then
     Result := GetElementNativeValues(entry, 'LVLO\Count');
+end;
+
+// Per-entry Chance None, distinct from the list-level LVLD value.
+function EntryChanceNone(entry: IInterface): Integer;
+begin
+  Result := GetElementNativeValues(entry, 'LVLO - Base Data\Chance None');
 end;
 
 //-------------------------------------------------------------------
@@ -575,17 +593,17 @@ begin
       Log('WARN', 'LEVEL', cur, ref, i, lvl, cnt, depth, ipath,
           'Entry level is ' + IntToStr(lvl) + '. Level 0 entries are always available ' +
           'regardless of player level.',
-          'Set LVLO\Level to the intended minimum player level, or confirm this is deliberate.');
+          'Set LVLO - Base Data\Level to the intended minimum player level, or confirm this is deliberate.');
 
     if lvl > 100 then
       Log('INFO', 'LEVEL', cur, ref, i, lvl, cnt, depth, ipath,
           'Entry level ' + IntToStr(lvl) + ' is above realistic play range - effectively unreachable.',
-          'Lower LVLO\Level, or accept this entry will never roll.');
+          'Lower LVLO - Base Data\Level, or accept this entry will never roll.');
 
     if cnt <= 0 then
       Log('CRITICAL', 'COUNT', cur, ref, i, lvl, cnt, depth, ipath,
           'Entry count is ' + IntToStr(cnt) + '. Zero-count entries produce nothing when rolled.',
-          'Set LVLO\Count to 1 or higher at entry index ' + IntToStr(i) + '.');
+          'Set LVLO - Base Data\Count to 1 or higher at entry index ' + IntToStr(i) + '.');
 
     if cnt > 20 then
       Log('INFO', 'COUNT', cur, ref, i, lvl, cnt, depth, ipath,
@@ -604,7 +622,7 @@ begin
         Log('WARN', 'BALANCE', cur, ref, i, lvl, cnt, depth, ipath,
             'Target tier ' + IntToStr(tier) + ' (' + TierSource(ref) + ') exceeds the ' +
             'list band ' + IntToStr(tlo) + '-' + IntToStr(thi) + ' - grants early access to late-game gear.',
-            'Raise LVLO\Level on this entry, move it to a higher-tier list, or ' +
+            'Raise LVLO - Base Data\Level on this entry, move it to a higher-tier list, or ' +
             'correct the tier in lltiers.txt if auto-derivation misjudged it.');
     end;
 
@@ -654,7 +672,7 @@ begin
         'Strongest: ' + SafeName(refHi) + ' (tier ' + IntToStr(tmax) + '). ' +
         'Two rolls on this list produce wildly different power outcomes.',
         'Split into tiered sub-lists, or gate the high-tier entries behind a ' +
-        'higher LVLO\Level.');
+        'higher LVLO - Base Data\Level.');
 end;
 
 //-------------------------------------------------------------------

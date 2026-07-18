@@ -1,5 +1,43 @@
 # Changelog
 
+## v4.1.2
+
+Fixes entry reference resolution for real, confirmed against actual xEdit
+output rather than assumption. Supersedes the incorrect diagnoses in v4.0.2
+and v4.1.1.
+
+### Fixed
+
+- **Entry target path.** The reference field is named `Item`, and it lives
+  inside a child struct called `LVLO - Base Data`:
+
+  ```
+  Leveled List Entry
+    LVLO - Base Data
+      Level
+      Item          <- target
+      Count
+      Chance None
+  ```
+
+  Every previous version looked for a field named `Reference`, at the wrong
+  depth. All lookups returned nil, so every entry was reported `NULLREF`,
+  no nesting was ever detected, and all lists were flagged `ORPHAN`.
+
+  Why it took three attempts: `GetElementNativeValues(entry, 'LVLO\Level')`
+  worked, because xEdit prefix-matches `LVLO` against `LVLO - Base Data`.
+  Level and Count therefore read correctly while the reference silently
+  failed, which pointed at handle lifetime and field naming rather than at
+  path depth.
+
+- xEdit paths quoted in finding messages updated to `LVLO - Base Data\...`, so
+  the suggested fixes point where the field actually is.
+
+### Added
+
+- `EntryChanceNone` helper for the per-entry Chance None value, which is
+  distinct from the list-level LVLD and was not previously read.
+
 ## v4.1.1
 
 Fixes the real cause of the mass NULLREF problem. v4.0.2 misdiagnosed it.
