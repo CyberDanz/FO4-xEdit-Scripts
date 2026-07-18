@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.0.1
+
+Compatibility fixes for xEdit's Pascal interpreter (JvInterpreter), found on
+first live run. No behaviour changes.
+
+### Fixed
+
+- `BoolToStr` is not available in the interpreter and aborted the script in
+  `Finalize` while writing the report header. Replaced with an explicit
+  `if`/`else`.
+- `SameText` replaced with an `Uppercase` comparison in the injection pass.
+- All `Pred(X)` loop bounds rewritten as `X - 1`.
+
 ## v4
 
 ### Added

@@ -173,7 +173,7 @@ begin
   m := MasterOrSelf(e);
   if not Assigned(m) then Exit;
   Result := GetFileName(GetFile(m));
-  for i := 0 to Pred(OverrideCount(m)) do begin
+  for i := 0 to OverrideCount(m) - 1 do begin
     ovr := OverrideByIndex(m, i);
     if Assigned(ovr) then
       Result := Result + ' -> ' + GetFileName(GetFile(ovr));
@@ -254,7 +254,7 @@ begin
   sl := TStringList.Create;
   try
     sl.Delimiter := ' ';
-    for i := 0 to Pred(slTiers.Count) do begin
+    for i := 0 to slTiers.Count - 1 do begin
       sl.DelimitedText := slTiers[i];
       if sl.Count < 3 then Continue;
       if Uppercase(sl[0]) <> 'ITEM' then Continue;
@@ -283,7 +283,7 @@ begin
   sl := TStringList.Create;
   try
     sl.Delimiter := ' ';
-    for i := 0 to Pred(slTiers.Count) do begin
+    for i := 0 to slTiers.Count - 1 do begin
       sl.DelimitedText := slTiers[i];
       if sl.Count < 4 then Continue;
       if Uppercase(sl[0]) <> 'LIST' then Continue;
@@ -490,7 +490,7 @@ begin
     Exit;
   end;
 
-  for i := 0 to Pred(ElementCount(entries)) do begin
+  for i := 0 to ElementCount(entries) - 1 do begin
     entry := ElementByIndex(entries, i);
     ref   := EntryTarget(entry);
     lvl   := GetElementNativeValues(entry, 'LVLO\Level');
@@ -584,7 +584,7 @@ begin
   refLo := nil;
   refHi := nil;
 
-  for i := 0 to Pred(ElementCount(entries)) do begin
+  for i := 0 to ElementCount(entries) - 1 do begin
     entry := ElementByIndex(entries, i);
     ref := EntryTarget(entry);
     if not Assigned(ref) then Continue;
@@ -659,7 +659,7 @@ begin
   if not Assigned(lst) then Exit;
   entries := ElementByName(lst, 'Leveled List Entries');
   if not Assigned(entries) then Exit;
-  for i := 0 to Pred(ElementCount(entries)) do begin
+  for i := 0 to ElementCount(entries) - 1 do begin
     entry := ElementByIndex(entries, i);
     sKey := EntryKey(entry);
     if sKey = '' then Continue;
@@ -687,7 +687,7 @@ var
 begin
   Result := '';
   n := 0;
-  for i := 0 to Pred(a.Count) do begin
+  for i := 0 to a.Count - 1 do begin
     if b.IndexOf(a[i]) < 0 then begin
       Inc(n);
       if n <= iLimit then begin
@@ -724,7 +724,7 @@ begin
   slPrev.Assign(slBase);
 
   try
-    for i := 0 to Pred(oc) do begin
+    for i := 0 to oc - 1 do begin
       ovr := OverrideByIndex(m, i);
       if not Assigned(ovr) then Continue;
       sPlugin := PluginOf(ovr);
@@ -753,7 +753,7 @@ begin
 
         // The load-order-critical case: entries a losing plugin injected that
         // the winning record does not carry.
-        if not SameText(sPlugin, sWinPlugin) then begin
+        if Uppercase(sPlugin) <> Uppercase(sWinPlugin) then begin
           sOrphan := '';
           if slCur.Count > 0 then
             sOrphan := DiffKeys(slCur, slWin, 8);
@@ -790,7 +790,10 @@ begin
 
   slReport.Add('=== Cyber''s Leveled List Auditor v4 (by CyberDanz) ===');
   slReport.Add('Generated: ' + DateToStr(Now) + ' ' + TimeToStr(Now));
-  slReport.Add('Tier overrides: ' + BoolToStr(bHaveTiers, True));
+  if bHaveTiers then
+    slReport.Add('Tier overrides: loaded from lltiers.txt')
+  else
+    slReport.Add('Tier overrides: none (lltiers.txt not found)');
   slReport.Add('');
   slReport.Add('SEVERITY KEY');
   slReport.Add('  CRITICAL - will break at runtime or silently lose content; fix before playing');
@@ -816,22 +819,22 @@ begin
   slReport.Add('=== FINDINGS ===');
 
   // Pass 1: structural walk of the winning version of each list.
-  for i := 0 to Pred(slListIndex.Count) do begin
+  for i := 0 to slListIndex.Count - 1 do begin
     e := ObjectToElement(slListIndex.Objects[i]);
     slVisiting.Clear;
     WalkList(e, 0, 1.0, '');
   end;
 
   // Pass 2: power spread within a single list.
-  for i := 0 to Pred(slListIndex.Count) do
+  for i := 0 to slListIndex.Count - 1 do
     SpreadCheck(ObjectToElement(slListIndex.Objects[i]));
 
   // Pass 3: override-chain injection cross-check.
-  for i := 0 to Pred(slListIndex.Count) do
+  for i := 0 to slListIndex.Count - 1 do
     InjectionCheck(ObjectToElement(slListIndex.Objects[i]));
 
   // Pass 4: lists nothing else points at.
-  for i := 0 to Pred(slListIndex.Count) do begin
+  for i := 0 to slListIndex.Count - 1 do begin
     e := ObjectToElement(slListIndex.Objects[i]);
     if slRefCount.IndexOf(KeyOf(e)) < 0 then
       Log('INFO', 'ORPHAN', e, nil, -1, -1, -1, 0, EditorID(e),
@@ -844,7 +847,7 @@ begin
   slReport.Add('');
   slReport.Add('=== SUMMARY ===');
   slReport.Add('Total findings   : ' + IntToStr(iFindingNo));
-  for i := 0 to Pred(slCounts.Count) do
+  for i := 0 to slCounts.Count - 1 do
     slReport.Add('  ' + slCounts[i] + ' : ' + IntToStr(Integer(slCounts.Objects[i])));
   slReport.Add('Lists indexed    : ' + IntToStr(slListIndex.Count));
   slReport.Add('Items auto-tiered: ' + IntToStr(slTierCache.Count));
