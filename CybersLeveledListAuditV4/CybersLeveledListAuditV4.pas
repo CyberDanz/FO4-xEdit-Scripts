@@ -106,7 +106,7 @@ begin
   slReport.Add('  CHANCE     - compounded Chance None makes the list near-dead');
   slReport.Add('  DEPTH      - excessive nesting');
   slReport.Add('  EMPTY      - list has no entries');
-  slReport.Add('  DUPE       - same target twice in one list');
+  slReport.Add('  DUPE       - identical entry (same target, level and count) twice in one list');
   slReport.Add('  SPREAD     - very wide power range within one list');
   slReport.Add('  BALANCE    - entry tier outside the configured band');
   slReport.Add('  ORPHAN     - no other leveled list references this one');
@@ -440,31 +440,34 @@ end;
 //-------------------------------------------------------------------
 // Resolve the target record of one leveled list entry.
 //
-// Confirmed layout (xEdit 4.1.5q, FO4):
-//   Leveled List Entry            (sig LVLO)
-//     LVLO - Base Data            (sig LVLO)
-//       Level
-//       Unused
-//       Item                      <- the target reference
-//       Count
-//       Chance None
-//       Unused
+// Confirmed layouts (xEdit 4.1.5q, FO4). Both record types share the same
+// struct shape; only the reference field name differs:
 //
-// The field is named "Item", not "Reference", and it lives one level down
-// inside "LVLO - Base Data". Earlier versions looked for 'Reference' and for a
-// child with signature LVLO, both of which return nil here - which is why
-// every entry was reported as NULLREF.
+//   LVLI (leveled item)          LVLN (leveled NPC)
+//   -------------------          ------------------
+//   Leveled List Entry           Leveled List Entry
+//     LVLO - Base Data             LVLO - Base Data
+//       Level                        Level
+//       Item      <- target          NPC       <- target
+//       Count                        Count
+//       Chance None                  Chance None
 //
-// Note that 'LVLO\Level' happened to work because xEdit prefix-matches
-// 'LVLO' against 'LVLO - Base Data'. That masked the problem: Level and Count
-// read correctly while the reference never resolved.
+// Checking only 'Item' resolved every LVLI entry but no LVLN entry, which
+// produced thousands of false NULLREF findings on LChar* lists and, because
+// nested NPC lists were never reference-counted, inflated ORPHAN too.
 function EntryTarget(entry: IInterface): IInterface;
 begin
   Result := LinksTo(ElementByPath(entry, 'LVLO - Base Data\Item'));
   if Assigned(Result) then Exit;
 
+  Result := LinksTo(ElementByPath(entry, 'LVLO - Base Data\NPC'));
+  if Assigned(Result) then Exit;
+
   // Fallbacks for other games or xEdit builds with a different layout.
   Result := LinksTo(ElementByPath(entry, 'LVLO\Item'));
+  if Assigned(Result) then Exit;
+
+  Result := LinksTo(ElementByPath(entry, 'LVLO\NPC'));
   if Assigned(Result) then Exit;
 
   Result := LinksTo(ElementByPath(entry, 'Item'));

@@ -1,5 +1,35 @@
 # Changelog
 
+## v4.1.5
+
+### Fixed
+
+- **Leveled NPC (LVLN) entries never resolved.** LVLI and LVLN share the same
+  entry struct, but the reference field is called `Item` in one and `NPC` in
+  the other. v4.1.2 fixed `Item` only, so every NPC list still failed.
+
+  On a full load order this produced 7,224 false `NULLREF` findings — 92% of
+  them on `LChar*` lists — and inflated `ORPHAN` to 4,141, since nested NPC
+  lists were never reference-counted. The giveaway in the data: across 16,106
+  findings, every successfully resolved target was an item type (ALCH, LVLI,
+  MISC, ARMO, AMMO, WEAP) and not one was an NPC.
+
+  `EntryTarget` now tries `NPC` alongside `Item`, with the previous fallbacks
+  retained.
+
+  NPC records have no tier heuristic, so they return -1 and are skipped by the
+  BALANCE and SPREAD checks, which already guarded for that.
+
+- TAG KEY description for `DUPE` corrected — it has keyed on target, level and
+  count since v4.1.4, but still described itself as matching target alone.
+
+### Notes
+
+- This release is the first where the injection cross-check ran against a real
+  load order: 473 `INJECT`, 359 `CLOBBER`, 91 `LOSTINJECT` across 8,204 lists.
+- `LOSTINJECT` findings from v4.1.4 remain valid — that check compares entry
+  sets between overrides and does not depend on resolving targets.
+
 ## v4.1.4
 
 ### Fixed
