@@ -1,0 +1,20 @@
+# Generated reports - the script writes these next to itself in Edit Scripts.
+# If you clone this repo directly into your Edit Scripts folder, these would
+# otherwise show up as untracked changes after every run.
+LeveledListAudit.txt
+LeveledListAudit.csv
+
+# Your actual tier overrides are personal to your load order.
+# The example file is tracked; the live one is not.
+lltiers.txt
+
+# xEdit backups and logs
+*.bak
+*.bak.*
+*.log
+Edit Scripts/*.txt.backup
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

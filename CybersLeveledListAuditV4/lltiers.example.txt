@@ -1,0 +1,61 @@
+# lltiers.txt - tier overrides for Cyber's Leveled List Auditor
+#
+# Rename this file to "lltiers.txt" and place it in your xEdit Edit Scripts
+# folder, next to LeveledListAudit.pas. It is entirely optional - without it,
+# the script skips BALANCE findings and everything else runs normally.
+#
+# Two directive types, one per line, space-separated:
+#
+#   ITEM  <EditorID or 8-digit FormID>  <tier 0-10>
+#         Overrides the auto-derived tier for a single item. Use this whenever
+#         the heuristic misjudges something, which it will for any weapon or
+#         armor that does not follow vanilla stat conventions.
+#
+#   LIST  <EditorID or 8-digit FormID>  <minTier>  <maxTier>
+#         Declares the power band a list is supposed to contain. Entries whose
+#         tier falls outside the band produce BALANCE findings.
+#
+# Lines starting with # are ignored. So are blank lines and any line that does
+# not parse as one of the two directives above.
+#
+# Tier scale, roughly:
+#   0-2   pipe weapons, raider armor, junk
+#   3-4   common wasteland gear
+#   5-6   military and gunner tier
+#   7-8   institute, high-end ballistic, energy weapons
+#   9-10  unique and legendary tier, fatman, gauss
+
+# ---------------------------------------------------------------------------
+# ITEM overrides
+# ---------------------------------------------------------------------------
+
+# Auto-derivation scores this too low because its damage is per-pellet.
+# ITEM  MyModCombatShotgun        6
+
+# Modded energy weapon with unusual ammo the AmmoWeight table does not know.
+# ITEM  MyModPlasmaCaster         9
+
+# By FormID instead of EditorID - both work.
+# ITEM  0801F3A2                  7
+
+# A cosmetic item that scores high on value but should never gate anything.
+# ITEM  MyModFancyHat             1
+
+# ---------------------------------------------------------------------------
+# LIST bands
+# ---------------------------------------------------------------------------
+
+# Early game - raiders should not be carrying institute rifles.
+# LIST  LLI_Raider_Weapons        0   4
+# LIST  LLI_Raider_Armor          0   4
+
+# Mid game.
+# LIST  LLI_Gunner_Weapons        3   7
+# LIST  LLI_Triggermen_Weapons    2   6
+
+# Late game and rare vendor stock.
+# LIST  LLI_Vendor_Rare           7  10
+# LIST  LLI_Institute_Weapons     6  10
+
+# Wide band - deliberately mixed loot, suppresses SPREAD noise on this list.
+# LIST  LLI_Generic_Loot          0  10
