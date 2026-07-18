@@ -37,6 +37,7 @@ var
   slVisiting    : TStringList;
   slCounts      : TStringList;   // tag -> occurrence count
   slNameCache   : TStringList;   // FormID hex -> EditorID, for report labels
+  slListNames   : TStringList;   // list FormID hex -> EditorID, for orphan pass
   iMaxDepth     : Integer;
   bHaveTiers    : Boolean;
   fWeapDmgMax   : Real;
@@ -58,10 +59,15 @@ begin
   slVisiting   := TStringList.Create;
   slCounts     := TStringList.Create;
   slNameCache  := TStringList.Create;
+  slListNames  := TStringList.Create;
 
   slNameCache.Sorted     := True;
   slNameCache.Duplicates := dupIgnore;
   slNameCache.NameValueSeparator := '=';
+
+  slListNames.Sorted     := True;
+  slListNames.Duplicates := dupIgnore;
+  slListNames.NameValueSeparator := '=';
 
   slListIndex.Sorted  := True;
   slRefCount.Sorted   := True;
@@ -78,6 +84,36 @@ begin
   bHaveTiers := FileExists(sPath);
   if bHaveTiers then
     slTiers.LoadFromFile(sPath);
+
+  slReport.Add('=== Cyber''s Leveled List Auditor v4 (by CyberDanz) ===');
+  slReport.Add('Generated: ' + DateToStr(Now) + ' ' + TimeToStr(Now));
+  if bHaveTiers then
+    slReport.Add('Tier overrides: loaded from lltiers.txt')
+  else
+    slReport.Add('Tier overrides: none (lltiers.txt not found)');
+  slReport.Add('');
+  slReport.Add('SEVERITY KEY');
+  slReport.Add('  CRITICAL - will break at runtime or silently lose content; fix before playing');
+  slReport.Add('  WARN     - behaves unexpectedly; probably not what you intended');
+  slReport.Add('  INFO     - worth a look; may be deliberate');
+  slReport.Add('');
+  slReport.Add('TAG KEY');
+  slReport.Add('  CYCLE      - list reachable from itself');
+  slReport.Add('  NULLREF    - entry points at a missing record');
+  slReport.Add('  COUNT      - zero or implausible entry count');
+  slReport.Add('  LEVEL      - zero or unreachable entry level');
+  slReport.Add('  CHANCE     - compounded Chance None makes the list near-dead');
+  slReport.Add('  DEPTH      - excessive nesting');
+  slReport.Add('  EMPTY      - list has no entries');
+  slReport.Add('  DUPE       - same target twice in one list');
+  slReport.Add('  SPREAD     - very wide power range within one list');
+  slReport.Add('  BALANCE    - entry tier outside the configured band');
+  slReport.Add('  ORPHAN     - no other leveled list references this one');
+  slReport.Add('  INJECT     - a plugin added entries to this list');
+  slReport.Add('  CLOBBER    - a plugin dropped entries an earlier plugin had');
+  slReport.Add('  LOSTINJECT - injected entries missing from the winning override');
+  slReport.Add('');
+  slReport.Add('=== FINDINGS ===');
 
   slCsv.Add('ID,Severity,Tag,OriginPlugin,WinningPlugin,ListEditorID,ListFormID,' +
             'EntryIndex,TargetEditorID,TargetFormID,TargetSig,Level,Count,' +
@@ -410,20 +446,6 @@ begin
 end;
 
 //-------------------------------------------------------------------
-// Anchor on the master record so every pass agrees on identity.
-function Process(e: IInterface): Integer;
-var
-  m: IInterface;
-  key: string;
-begin
-  Result := 0;
-  if not IsLeveled(e) then Exit;
-  m := MasterOrSelf(e);
-  if not Assigned(m) then m := e;
-  key := KeyOf(m);
-  if slListIndex.IndexOf(key) < 0 then
-    slListIndex.AddObject(key, TObject(m));
-end;
 
 //-------------------------------------------------------------------
 procedure WalkList(e: IInterface; depth: Integer; accChance: Real; path: string);
@@ -779,69 +801,125 @@ begin
   end;
 end;
 
+// Anchor on the master record so every pass agrees on identity.
+// Analysis happens here, while xEdit guarantees the element handle is valid.
+// Storing handles for later use in Finalize does not work reliably - they go
+// stale and every LinksTo resolves to nothing.
+function Process(e: IInterface): Integer;
+var
+  m: IInterface;
+  key: string;
+begin
+  Result := 0;
+  if not IsLeveled(e) then Exit;
+
+  m := MasterOrSelf(e);
+  if not Assigned(m) then m := e;
+  key := KeyOf(m);
+
+  // Only analyse each list once, no matter how many plugins override it.
+  if slListIndex.IndexOf(key) >= 0 then Exit;
+  slListIndex.Add(key);
+
+  // Remember the EditorID now, for the orphan report later.
+  slListNames.Add(key + '=' + EditorID(WinningOverride(m)));
+
+  slVisiting.Clear;
+  WalkList(m, 0, 1.0, '');
+  SpreadCheck(m);
+  InjectionCheck(m);
+end;
+
+//-------------------------------------------------------------------
+// Build a filename-safe timestamp from DateToStr/TimeToStr, which are known
+// to work in the interpreter. FormatDateTime is avoided deliberately - the
+// interpreter's supported function set is not fully documented and
+// BoolToStr already turned out to be missing.
+// Produces yyyymmdd_hhnnss where the source format allows, otherwise a
+// sanitised version of whatever the locale gives us.
+function SafeStamp: string;
+var
+  s, ch: string;
+  i: Integer;
+begin
+  s := DateToStr(Now) + '_' + TimeToStr(Now);
+  Result := '';
+  for i := 1 to Length(s) do begin
+    ch := Copy(s, i, 1);
+    if ((ch >= '0') and (ch <= '9')) or (ch = '_') then
+      Result := Result + ch;
+  end;
+  if Result = '' then Result := 'run';
+end;
+
+// Split a CSV line into fields. The writer replaces commas inside values with
+// semicolons via CsvSafe, so a plain split on ',' is safe here.
+procedure SplitCsv(sLine: string; sl: TStringList);
+var
+  i: Integer;
+  ch, cur: string;
+begin
+  sl.Clear;
+  cur := '';
+  for i := 1 to Length(sLine) do begin
+    ch := Copy(sLine, i, 1);
+    if ch = ',' then begin
+      sl.Add(cur);
+      cur := '';
+    end else
+      cur := cur + ch;
+  end;
+  sl.Add(cur);
+end;
+
+// Identity of a finding, independent of its sequential ID. Two runs describing
+// the same underlying problem produce the same signature.
+// Fields: 1=Severity 2=Tag 4=WinningPlugin 5=ListEditorID 6=ListFormID
+//         7=EntryIndex 9=TargetFormID
+function FindingSig(sLine: string; sl: TStringList): string;
+begin
+  Result := '';
+  SplitCsv(sLine, sl);
+  if sl.Count < 10 then Exit;
+  Result := sl[2] + '|' + sl[1] + '|' + sl[6] + '|' + sl[7] + '|' + sl[9];
+end;
+
 //-------------------------------------------------------------------
 function Finalize: Integer;
 var
-  i: Integer;
-  e: IInterface;
-  sOut, sCsvOut: string;
+  i, idx, iFixed, iNew: Integer;
+  sOut, sCsvOut, sKey, sEid, sStamp, sSig: string;
+  sArchTxt, sArchCsv, sDiffOut: string;
+  bHavePrev: Boolean;
+  slDiff, slPrevCsv, slPrevSigs, slCurSigs, slTmp: TStringList;
 begin
   AddMessage('Indexed ' + IntToStr(slListIndex.Count) + ' leveled lists.');
 
-  slReport.Add('=== Cyber''s Leveled List Auditor v4 (by CyberDanz) ===');
-  slReport.Add('Generated: ' + DateToStr(Now) + ' ' + TimeToStr(Now));
-  if bHaveTiers then
-    slReport.Add('Tier overrides: loaded from lltiers.txt')
-  else
-    slReport.Add('Tier overrides: none (lltiers.txt not found)');
-  slReport.Add('');
-  slReport.Add('SEVERITY KEY');
-  slReport.Add('  CRITICAL - will break at runtime or silently lose content; fix before playing');
-  slReport.Add('  WARN     - behaves unexpectedly; probably not what you intended');
-  slReport.Add('  INFO     - worth a look; may be deliberate');
-  slReport.Add('');
-  slReport.Add('TAG KEY');
-  slReport.Add('  CYCLE      - list reachable from itself');
-  slReport.Add('  NULLREF    - entry points at a missing record');
-  slReport.Add('  COUNT      - zero or implausible entry count');
-  slReport.Add('  LEVEL      - zero or unreachable entry level');
-  slReport.Add('  CHANCE     - compounded Chance None makes the list near-dead');
-  slReport.Add('  DEPTH      - excessive nesting');
-  slReport.Add('  EMPTY      - list has no entries');
-  slReport.Add('  DUPE       - same target twice in one list');
-  slReport.Add('  SPREAD     - very wide power range within one list');
-  slReport.Add('  BALANCE    - entry tier outside the configured band');
-  slReport.Add('  ORPHAN     - no other leveled list references this one');
-  slReport.Add('  INJECT     - a plugin added entries to this list');
-  slReport.Add('  CLOBBER    - a plugin dropped entries an earlier plugin had');
-  slReport.Add('  LOSTINJECT - injected entries missing from the winning override');
-  slReport.Add('');
-  slReport.Add('=== FINDINGS ===');
 
-  // Pass 1: structural walk of the winning version of each list.
+  // Lists nothing else points at. Uses names captured during Process, since
+  // element handles are no longer valid here.
   for i := 0 to slListIndex.Count - 1 do begin
-    e := ObjectToElement(slListIndex.Objects[i]);
-    slVisiting.Clear;
-    WalkList(e, 0, 1.0, '');
-  end;
-
-  // Pass 2: power spread within a single list.
-  for i := 0 to slListIndex.Count - 1 do
-    SpreadCheck(ObjectToElement(slListIndex.Objects[i]));
-
-  // Pass 3: override-chain injection cross-check.
-  for i := 0 to slListIndex.Count - 1 do
-    InjectionCheck(ObjectToElement(slListIndex.Objects[i]));
-
-  // Pass 4: lists nothing else points at.
-  for i := 0 to slListIndex.Count - 1 do begin
-    e := ObjectToElement(slListIndex.Objects[i]);
-    if slRefCount.IndexOf(KeyOf(e)) < 0 then
-      Log('INFO', 'ORPHAN', e, nil, -1, -1, -1, 0, EditorID(e),
-          'No other leveled list references this one. Note: containers, NPC ' +
-          'inventories and quest scripts are NOT scanned, so this may be a false positive.',
-          'Search the FormID in xEdit (Ctrl+F) to confirm nothing references it ' +
-          'before deleting.');
+    sKey := slListIndex[i];
+    if slRefCount.IndexOf(sKey) < 0 then begin
+      sEid := slListNames.Values[sKey];
+      if sEid = '' then sEid := '[' + sKey + ']';
+      Inc(iFindingNo);
+      idx := slCounts.IndexOf('ORPHAN');
+      if idx < 0 then slCounts.AddObject('ORPHAN', TObject(1))
+      else slCounts.Objects[idx] := TObject(Integer(slCounts.Objects[idx]) + 1);
+      slReport.Add('');
+      slReport.Add('#' + IntToStr(iFindingNo) + '  [INFO] ORPHAN');
+      slReport.Add('  List      : ' + sEid + ' [' + sKey + ']');
+      slReport.Add('  Detail    : No other leveled list references this one. Note: ' +
+                   'containers, NPC inventories and quest scripts are NOT scanned, ' +
+                   'so this may be a false positive.');
+      slReport.Add('  Fix       : Search the FormID in xEdit (Ctrl+F) to confirm ' +
+                   'nothing references it before deleting.');
+      slCsv.Add(IntToStr(iFindingNo) + ',INFO,ORPHAN,,,' + CsvSafe(sEid) + ',' + sKey +
+                ',-1,,,,-1,-1,0,' + CsvSafe(sEid) +
+                ',No other leveled list references this one,' +
+                'Confirm with Ctrl+F before deleting');
+    end;
   end;
 
   slReport.Add('');
@@ -853,14 +931,116 @@ begin
   slReport.Add('Items auto-tiered: ' + IntToStr(slTierCache.Count));
   slReport.Add('Max nesting depth: ' + IntToStr(iMaxDepth));
 
-  sOut    := ScriptsPath + 'LeveledListAudit.txt';
-  sCsvOut := ScriptsPath + 'LeveledListAudit.csv';
+  //-----------------------------------------------------------------
+  // Output. Three things get written:
+  //   1. Timestamped archive pair - never overwritten, builds history
+  //   2. LeveledListAudit.csv/.txt - always the latest run, stable path
+  //   3. LeveledListAuditDiff.txt - this run vs the previous latest CSV
+  //-----------------------------------------------------------------
+  sStamp := SafeStamp;
+
+  sOut     := ScriptsPath + 'LeveledListAudit.txt';
+  sCsvOut  := ScriptsPath + 'LeveledListAudit.csv';
+  sArchTxt := ScriptsPath + 'LeveledListAudit_' + sStamp + '.txt';
+  sArchCsv := ScriptsPath + 'LeveledListAudit_' + sStamp + '.csv';
+  sDiffOut := ScriptsPath + 'LeveledListAuditDiff.txt';
+
+  // Diff must read the PREVIOUS latest CSV before we overwrite it.
+  slDiff := TStringList.Create;
+  slPrevCsv := TStringList.Create;
+  slPrevSigs := TStringList.Create;
+  slCurSigs := TStringList.Create;
+  slTmp := TStringList.Create;
+  slPrevSigs.Sorted := True;  slPrevSigs.Duplicates := dupIgnore;
+  slCurSigs.Sorted := True;   slCurSigs.Duplicates := dupIgnore;
+
+  try
+    slDiff.Add('=== Leveled List Audit - run comparison ===');
+    slDiff.Add('This run : ' + DateToStr(Now) + ' ' + TimeToStr(Now));
+
+    bHavePrev := FileExists(sCsvOut);
+    if not bHavePrev then begin
+      slDiff.Add('');
+      slDiff.Add('No previous run found. This is the first audit, so there is');
+      slDiff.Add('nothing to compare against. Re-run after making changes and');
+      slDiff.Add('this file will show what was fixed and what appeared.');
+    end else begin
+      slPrevCsv.LoadFromFile(sCsvOut);
+
+      // Signatures for both runs. Row 0 is the header in each.
+      for i := 1 to slPrevCsv.Count - 1 do begin
+        sSig := FindingSig(slPrevCsv[i], slTmp);
+        if sSig <> '' then slPrevSigs.Add(sSig);
+      end;
+      for i := 1 to slCsv.Count - 1 do begin
+        sSig := FindingSig(slCsv[i], slTmp);
+        if sSig <> '' then slCurSigs.Add(sSig);
+      end;
+
+      iFixed := 0; iNew := 0;
+
+      slDiff.Add('Previous : ' + IntToStr(slPrevCsv.Count - 1) + ' findings');
+      slDiff.Add('Current  : ' + IntToStr(slCsv.Count - 1) + ' findings');
+      slDiff.Add('');
+      slDiff.Add('--- RESOLVED (present last run, gone now) ---');
+      for i := 1 to slPrevCsv.Count - 1 do begin
+        sSig := FindingSig(slPrevCsv[i], slTmp);
+        if (sSig <> '') and (slCurSigs.IndexOf(sSig) < 0) then begin
+          Inc(iFixed);
+          SplitCsv(slPrevCsv[i], slTmp);
+          slDiff.Add('  [' + slTmp[1] + '] ' + slTmp[2] + '  ' +
+                     slTmp[5] + ' [' + slTmp[6] + ']' +
+                     '  ' + slTmp[15]);
+        end;
+      end;
+      if iFixed = 0 then slDiff.Add('  (none)');
+
+      slDiff.Add('');
+      slDiff.Add('--- NEW (not present last run) ---');
+      for i := 1 to slCsv.Count - 1 do begin
+        sSig := FindingSig(slCsv[i], slTmp);
+        if (sSig <> '') and (slPrevSigs.IndexOf(sSig) < 0) then begin
+          Inc(iNew);
+          SplitCsv(slCsv[i], slTmp);
+          slDiff.Add('  [' + slTmp[1] + '] ' + slTmp[2] + '  ' +
+                     slTmp[5] + ' [' + slTmp[6] + ']' +
+                     '  ' + slTmp[15]);
+        end;
+      end;
+      if iNew = 0 then slDiff.Add('  (none)');
+
+      slDiff.Add('');
+      slDiff.Add('--- NET ---');
+      slDiff.Add('  Resolved : ' + IntToStr(iFixed));
+      slDiff.Add('  New      : ' + IntToStr(iNew));
+      slDiff.Add('  Unchanged: ' + IntToStr((slCsv.Count - 1) - iNew));
+      slDiff.Add('');
+      slDiff.Add('A finding is matched on tag, severity, list FormID, entry index');
+      slDiff.Add('and target FormID - not on its sequential ID, which shifts');
+      slDiff.Add('between runs. Edits to level or count on an otherwise unchanged');
+      slDiff.Add('entry will therefore show as unchanged, not as new.');
+    end;
+
+    slDiff.SaveToFile(sDiffOut);
+  finally
+    slDiff.Free;
+    slPrevCsv.Free;
+    slPrevSigs.Free;
+    slCurSigs.Free;
+    slTmp.Free;
+  end;
+
+  // Now safe to overwrite the latest pair.
   slReport.SaveToFile(sOut);
   slCsv.SaveToFile(sCsvOut);
+  slReport.SaveToFile(sArchTxt);
+  slCsv.SaveToFile(sArchCsv);
 
-  AddMessage('Report  : ' + sOut);
-  AddMessage('CSV     : ' + sCsvOut);
-  AddMessage('Findings: ' + IntToStr(iFindingNo));
+  AddMessage('Report   : ' + sOut);
+  AddMessage('CSV      : ' + sCsvOut);
+  AddMessage('Archive  : ' + sArchCsv);
+  AddMessage('Diff     : ' + sDiffOut);
+  AddMessage('Findings : ' + IntToStr(iFindingNo));
 
   slReport.Free;
   slCsv.Free;
@@ -872,6 +1052,7 @@ begin
   slVisiting.Free;
   slCounts.Free;
   slNameCache.Free;
+  slListNames.Free;
   Result := 0;
 end;
 

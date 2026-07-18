@@ -1,5 +1,54 @@
 # Changelog
 
+## v4.1.0
+
+### Added
+
+- **Timestamped archive output.** Every run now also writes
+  `LeveledListAudit_<timestamp>.txt` and `.csv`, which are never overwritten.
+  Build a history without losing earlier runs.
+- **Stable latest-run path retained.** `LeveledListAudit.txt` / `.csv` still
+  always hold the most recent run, so you have one path to open.
+- **Run comparison report.** `LeveledListAuditDiff.txt` compares this run
+  against the previous latest CSV and lists findings under RESOLVED (present
+  before, gone now) and NEW (not present before), with a net count. Findings
+  are matched on tag, severity, list FormID, entry index and target FormID —
+  not on the sequential ID, which shifts between runs.
+- `SafeStamp`, `SplitCsv`, `FindingSig` helpers. The timestamp is built from
+  `DateToStr`/`TimeToStr` rather than `FormatDateTime`, which is not confirmed
+  present in the interpreter.
+
+### Notes
+
+- The diff reads the previous CSV before overwriting it, so the first run
+  reports that there is nothing to compare against.
+- A finding whose level or count changed but which is otherwise the same entry
+  counts as unchanged, since those fields are not part of the signature.
+
+## v4.0.2
+
+Fixes a bug that made v4.0.1 output meaningless on a real load order.
+
+### Fixed
+
+- **Stale element handles.** `Process` stored `IInterface` handles in a
+  `TStringList` and re-resolved them in `Finalize` via `ObjectToElement`. xEdit
+  only guarantees handles remain valid inside the `Process` callback, so by the
+  time `Finalize` ran, every `LinksTo` resolved to nothing. Symptoms: nearly
+  every entry reported as `NULLREF`, every list reported as `ORPHAN`, and
+  `Max nesting depth: 0` regardless of actual nesting.
+
+  All analysis (`WalkList`, `SpreadCheck`, `InjectionCheck`) now runs inside
+  `Process` while handles are live. `Finalize` only emits the orphan pass, from
+  FormIDs and EditorIDs captured earlier, and writes the output files.
+
+### Changed
+
+- Report header moved from `Finalize` to `Initialize` so it precedes findings.
+- `Process` relocated below its callees — the interpreter has no forward
+  declarations.
+- Added `slListNames` to carry list EditorIDs into the orphan pass.
+
 ## v4.0.1
 
 Compatibility fixes for xEdit's Pascal interpreter (JvInterpreter), found on

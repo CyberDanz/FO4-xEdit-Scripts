@@ -3,6 +3,9 @@
 # otherwise show up as untracked changes after every run.
 LeveledListAudit.txt
 LeveledListAudit.csv
+LeveledListAudit_*.txt
+LeveledListAudit_*.csv
+LeveledListAuditDiff.txt
 
 # Your actual tier overrides are personal to your load order.
 # The example file is tracked; the live one is not.
