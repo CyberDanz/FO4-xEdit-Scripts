@@ -34,6 +34,7 @@ var
   slTiers       : TStringList;
   slTierCache   : TStringList;
   slVisiting    : TStringList;
+  slWalked      : TStringList;   // lists already analysed, prevents re-reporting
   slCounts      : TStringList;   // tag -> occurrence count
   slNameCache   : TStringList;   // FormID hex -> EditorID, for report labels
   slListNames   : TStringList;   // list FormID hex -> EditorID, for orphan pass
@@ -55,6 +56,7 @@ begin
   slTiers      := TStringList.Create;
   slTierCache  := TStringList.Create;
   slVisiting   := TStringList.Create;
+  slWalked     := TStringList.Create;
   slCounts     := TStringList.Create;
   slNameCache  := TStringList.Create;
   slListNames  := TStringList.Create;
@@ -70,6 +72,8 @@ begin
   slListIndex.Sorted  := True;
   slRefCount.Sorted   := True;
   slTierCache.Sorted  := True;
+  slWalked.Sorted     := True;
+  slWalked.Duplicates := dupIgnore;
   slCounts.Sorted     := True;
 
   iMaxDepth   := 0;
@@ -517,6 +521,14 @@ begin
         'Trace the Path field above to find it.');
     Exit;
   end;
+
+  // A nested list is reachable from every parent that points at it. Analyse it
+  // once only - otherwise its entries are re-reported once per parent, which
+  // multiplies findings (a vanilla ammo list nested under nine weapon lists
+  // produced nine copies of every finding). Reference counting still happens
+  // below for the caller, before this returns.
+  if slWalked.IndexOf(key) >= 0 then Exit;
+  slWalked.Add(key);
   slVisiting.Add(key);
 
   if depth > iMaxDepth then iMaxDepth := depth;
@@ -583,15 +595,19 @@ begin
     else
       slRefCount.Objects[idx] := TObject(Integer(slRefCount.Objects[idx]) + 1);
 
-    // DUPE detection must be scoped to THIS list only. slInjections used to be
-    // a global, so a nested list reached from several parents matched keys left
-    // over from an earlier visit and reported every entry as a duplicate.
-    injKey := KeyOf(ref);
+    // DUPE detection is scoped to THIS list, and keys on target + level +
+    // count. Vanilla lists routinely repeat the same item at different counts
+    // to randomise quantity - LL_Ammo_308Caliber holds the same ammo record
+    // five times at counts 2 through 6. That is deliberate design, not a
+    // conflict, so only an exact repeat of target, level and count is flagged.
+    injKey := KeyOf(ref) + '|L' + IntToStr(lvl) + '|C' + IntToStr(cnt);
     if slSeenHere.IndexOf(injKey) >= 0 then
       Log('WARN', 'DUPE', cur, ref, i, lvl, cnt, depth, ipath,
-          'This target appears more than once in the same list, doubling its roll weight.',
-          'Likely two mods injected the same item. Compare the Chain field across ' +
-          'both entries and remove the redundant one in your patch.')
+          'This exact entry - same target, same level, same count - appears more ' +
+          'than once in this list, doubling its roll weight.',
+          'If two mods injected the same item, compare the Chain field and remove ' +
+          'the redundant entry in your patch. Repeats at DIFFERENT counts are a ' +
+          'normal way to randomise quantity and are not flagged.')
     else
       slSeenHere.Add(injKey);
 
@@ -1124,6 +1140,7 @@ begin
   slTiers.Free;
   slTierCache.Free;
   slVisiting.Free;
+  slWalked.Free;
   slCounts.Free;
   slNameCache.Free;
   slListNames.Free;

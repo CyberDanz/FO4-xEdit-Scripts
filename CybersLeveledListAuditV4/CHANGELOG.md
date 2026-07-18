@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.1.4
+
+### Fixed
+
+- **Nested lists analysed once per parent.** A list reachable from several
+  parents was fully re-analysed on each visit, so its findings were reported
+  once per parent. `LL_Ammo_308Caliber` is nested under nine weapon lists, so
+  its 4 entries produced 36 findings. `slVisiting` only guarded against cycles
+  within a single path; a new `slWalked` set now ensures each list is analysed
+  once per run. Reference counting still happens in the parent's loop, so
+  orphan detection is unaffected.
+
+- **DUPE no longer fires on vanilla quantity randomisation.** Bethesda lists
+  routinely repeat the same item at different counts to vary how much you get -
+  `LL_Ammo_308Caliber` holds the same ammo record five times at counts 2
+  through 6. That was flagged as a duplicate. The check now keys on target
+  **plus level plus count**, so only an exact repeat is reported, and the
+  finding text explains that differing counts are normal.
+
 ## v4.1.3
 
 ### Fixed
