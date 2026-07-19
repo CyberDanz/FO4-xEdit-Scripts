@@ -67,12 +67,15 @@ step, attributing changes to specific plugins.
 | `CHANCE` | WARN | Chance None compounds across nesting to leave an effective spawn rate under 5%. |
 | `LEVEL` | WARN | Entry level is 0 — available regardless of player level. |
 | `LEVEL` | INFO | Entry level above 100 — effectively unreachable in normal play. |
-| `ORPHAN` | INFO | No other leveled list references this one. |
+| `ORPHAN` | INFO | No other leveled list references this one. **CSV only** — see note below. |
 
-**On `ORPHAN` false positives:** the script only scans leveled lists. Containers,
-NPC inventories, and quest scripts are not examined, so a list flagged as an
-orphan may still be referenced from somewhere it cannot see. Always confirm with
-Ctrl+F on the FormID before deleting anything.
+**On `ORPHAN`:** the script only scans leveled lists. Containers, NPC
+inventories, and quest scripts are not examined, so a list flagged as an orphan
+may still be referenced from somewhere it cannot see. On a full load order this
+fires thousands of times and is mostly unactionable, so these findings are
+written to the CSV only — the text report shows a count and this explanation.
+Filter `Tag=ORPHAN` in the CSV to see them, and always confirm with Ctrl+F on
+the FormID before deleting anything.
 
 ### Balance
 

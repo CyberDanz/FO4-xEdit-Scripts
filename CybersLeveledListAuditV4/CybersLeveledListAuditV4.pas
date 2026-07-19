@@ -109,7 +109,7 @@ begin
   slReport.Add('  DUPE       - identical entry (same target, level and count) twice in one list');
   slReport.Add('  SPREAD     - very wide power range within one list');
   slReport.Add('  BALANCE    - entry tier outside the configured band');
-  slReport.Add('  ORPHAN     - no other leveled list references this one');
+  slReport.Add('  ORPHAN     - no other leveled list references this one (CSV only)');
   slReport.Add('  INJECT     - a plugin added entries to this list');
   slReport.Add('  CLOBBER    - a plugin dropped entries an earlier plugin had');
   slReport.Add('  LOSTINJECT - injected entries missing from the winning override');
@@ -963,7 +963,7 @@ end;
 //-------------------------------------------------------------------
 function Finalize: Integer;
 var
-  i, idx, iFixed, iNew: Integer;
+  i, idx, iFixed, iNew, iOrphans: Integer;
   sOut, sCsvOut, sKey, sEid, sStamp, sSig: string;
   sArchTxt, sArchCsv, sDiffOut: string;
   bHavePrev: Boolean;
@@ -974,23 +974,24 @@ begin
 
   // Lists nothing else points at. Uses names captured during Process, since
   // element handles are no longer valid here.
+  //
+  // These go to the CSV only. On a full load order this check fires thousands
+  // of times, and most of it is unactionable: the script cannot see container
+  // contents, NPC inventories or quest scripts, so any list referenced only
+  // from those looks orphaned. Listing every one buried the findings that
+  // matter. The count appears in the summary and the rows stay in the CSV for
+  // anyone who wants to filter on them.
+  iOrphans := 0;
   for i := 0 to slListIndex.Count - 1 do begin
     sKey := slListIndex[i];
     if slRefCount.IndexOf(sKey) < 0 then begin
       sEid := slListNames.Values[sKey];
       if sEid = '' then sEid := '[' + sKey + ']';
       Inc(iFindingNo);
+      Inc(iOrphans);
       idx := slCounts.IndexOf('ORPHAN');
       if idx < 0 then slCounts.AddObject('ORPHAN', TObject(1))
       else slCounts.Objects[idx] := TObject(Integer(slCounts.Objects[idx]) + 1);
-      slReport.Add('');
-      slReport.Add('#' + IntToStr(iFindingNo) + '  [INFO] ORPHAN');
-      slReport.Add('  List      : ' + sEid + ' [' + sKey + ']');
-      slReport.Add('  Detail    : No other leveled list references this one. Note: ' +
-                   'containers, NPC inventories and quest scripts are NOT scanned, ' +
-                   'so this may be a false positive.');
-      slReport.Add('  Fix       : Search the FormID in xEdit (Ctrl+F) to confirm ' +
-                   'nothing references it before deleting.');
       slCsv.Add(IntToStr(iFindingNo) + ',INFO,ORPHAN,,,' + CsvSafe(sEid) + ',' + sKey +
                 ',-1,,,,-1,-1,0,' + CsvSafe(sEid) +
                 ',No other leveled list references this one,' +
@@ -998,11 +999,27 @@ begin
     end;
   end;
 
+  if iOrphans > 0 then begin
+    slReport.Add('');
+    slReport.Add('--- ORPHAN (' + IntToStr(iOrphans) + ' lists) ---');
+    slReport.Add('These are not listed individually here - see the CSV and filter');
+    slReport.Add('Tag=ORPHAN. A list is flagged when no other leveled list points at');
+    slReport.Add('it, but containers, NPC inventories and quest scripts are NOT');
+    slReport.Add('scanned, so top-level vendor and encounter lists appear here');
+    slReport.Add('legitimately. Confirm with Ctrl+F on the FormID before deleting');
+    slReport.Add('anything.');
+  end;
+
   slReport.Add('');
   slReport.Add('=== SUMMARY ===');
   slReport.Add('Total findings   : ' + IntToStr(iFindingNo));
-  for i := 0 to slCounts.Count - 1 do
-    slReport.Add('  ' + slCounts[i] + ' : ' + IntToStr(Integer(slCounts.Objects[i])));
+  for i := 0 to slCounts.Count - 1 do begin
+    if slCounts[i] = 'ORPHAN' then
+      slReport.Add('  ' + slCounts[i] + ' : ' +
+                   IntToStr(Integer(slCounts.Objects[i])) + '   (CSV only)')
+    else
+      slReport.Add('  ' + slCounts[i] + ' : ' + IntToStr(Integer(slCounts.Objects[i])));
+  end;
   slReport.Add('Lists indexed    : ' + IntToStr(slListIndex.Count));
   slReport.Add('Items auto-tiered: ' + IntToStr(slTierCache.Count));
   slReport.Add('Max nesting depth: ' + IntToStr(iMaxDepth));

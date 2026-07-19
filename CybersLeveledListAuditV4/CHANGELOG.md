@@ -1,5 +1,22 @@
 # Changelog
 
+## v4.1.6
+
+### Changed
+
+- **ORPHAN findings are now CSV-only.** On a full load order this check fired
+  3,668 times — around 40% of the entire report — and most of it is
+  unactionable, because the script cannot see container contents, NPC
+  inventories or quest scripts. Any list referenced only from those looks
+  orphaned.
+
+  The text report now shows a single block with the count and an explanation.
+  Every row is still written to the CSV, so filtering `Tag=ORPHAN` gives the
+  full list. Nothing is lost; it just stops burying the findings that matter.
+
+  The summary marks the tag `(CSV only)` so the counts do not look
+  inconsistent.
+
 ## v4.1.5
 
 ### Fixed
