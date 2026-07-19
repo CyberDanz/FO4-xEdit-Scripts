@@ -238,6 +238,16 @@ Read these before acting on output.
 
 ---
 
+## Diagnostics
+
+The [`diagnostics/`](diagnostics/) folder holds read-only scripts for
+inspecting xEdit's actual record structure. Run `LLDiag.pas` if entry
+resolution ever looks wrong — it prints the real field paths your xEdit build
+uses, which is faster and more reliable than assuming them. See the
+[diagnostics README](diagnostics/README.md) for why that matters.
+
+---
+
 ## Contributing
 
 Issues and pull requests welcome. When reporting a false positive or a wrong
